@@ -51,8 +51,8 @@ label{font-size:13px;color:var(--muted);font-weight:bold}
 
 <div id="loginPage" class="card">
   <div class="title">🔐 Login</div>
-  <label>PIN</label><input id="pin" type="password" inputmode="numeric" placeholder="Enter PIN">
   <label>Working Date (you can select back date)</label><input id="workingDate" type="date">
+  <label>PIN</label><input id="pin" type="password" inputmode="numeric" placeholder="Enter PIN">
   <button onclick="login()">Login</button>
   <p class="small">All new entries will be saved on the selected Working Date. Reports remain independent.</p>
 </div>
@@ -118,7 +118,7 @@ label{font-size:13px;color:var(--muted);font-weight:bold}
       <label>To Date</label><input id="manageTo" type="date">
       <label>Or Month</label><input id="manageMonth" type="month">
       <button onclick="loadManage(false)">Search Active Data</button>
-      <button class="blue" onclick="loadManage(true)">♻ Deleted Data / Restore</button>
+      <button class="blue" onclick="loadManage(true)">♻ Show Deleted Data / Restore</button>
       <div id="manageList"></div>
       <button class="gray" onclick="home()">← Back</button>
     </div>
@@ -136,6 +136,8 @@ const API_URL = "https://script.google.com/macros/s/AKfycbz6Lc83l0VV8--0hFeC3f4w
 
 
 
+
+const DEVICE_ID_KEY="mcf_device_id";function getDeviceId_(){let x=localStorage.getItem(DEVICE_ID_KEY);if(!x){x=(crypto&&crypto.randomUUID)?crypto.randomUUID():"d-"+Date.now()+"-"+Math.random().toString(16).slice(2);localStorage.setItem(DEVICE_ID_KEY,x);}return x;}function getDeviceName_(){const u=navigator.userAgent||"";if(/Android/i.test(u))return"Android / Mobile";if(/iPhone|iPad/i.test(u))return"Apple Mobile";if(/Windows/i.test(u))return"Windows / PC";return navigator.platform||"Unknown Device";}
 const SESSION_KEY = "mcf_session_token";
 const SESSION_EXPIRY_KEY = "mcf_session_expires";
 function getSessionToken_(){ return localStorage.getItem(SESSION_KEY) || ""; }
@@ -192,12 +194,15 @@ function jsonpApi(action, params) {
 // continue to work in the installable PWA.
 (function(){
   const methods = {
-    validatePin: (pin) => jsonpApi("login", {pin}).then(r => {
+    validatePin: (pin) => jsonpApi("login", {pin,deviceId:getDeviceId_(),deviceName:getDeviceName_()}).then(r => {
       if (r && r.ok) setSession_(r);
       return !!(r && r.ok);
     }),
     logout: () => jsonpApi("logout", {}).then(r => { clearSession_(); return r; }),
     changePin: (oldPin, newPin) => jsonpApi("changePin", {payload:{oldPin,newPin}}),
+    getSessions: () => jsonpApi("sessions", {}),
+    logoutOthers: () => jsonpApi("logoutOthers", {}),
+    logoutSession: (sessionId) => jsonpApi("logoutSession", {payload:{sessionId}}),
     getDashboard: (workingDate) => jsonpApi("dashboard", {workingDate}).then(r => {
       if (!r.ok) throw new Error(r.error || "Dashboard error");
       localStorage.setItem("mcf_cache_dashboard_"+workingDate, JSON.stringify(r.data));
@@ -286,6 +291,30 @@ function today(){
 
 $("workingDate").value=today();
 
+// Keep the user logged in after refresh while the secure backend session is still valid.
+function restoreSessionAfterRefresh_(){
+  const savedDate = localStorage.getItem("mcfWorkingDate") || "";
+  const token = getSessionToken_();
+
+  if (!savedDate || !token || sessionExpired_()) {
+    if (sessionExpired_()) {
+      clearSession_();
+      localStorage.removeItem("mcfWorkingDate");
+    }
+    return;
+  }
+
+  currentWorkingDate = savedDate;
+  $("workingDate").value = savedDate;
+  $("loginPage").classList.add("hidden");
+  $("app").classList.remove("hidden");
+  home();
+  updateNetworkStatus();
+  if (navigator.onLine) syncPending();
+}
+
+restoreSessionAfterRefresh_();
+
 function login(){
   const pin=$("pin").value.trim(), wd=$("workingDate").value;
   if(!wd){toast("Select Working Date");return}
@@ -310,6 +339,7 @@ function login(){
     if(!ok){toast("Wrong PIN");return}
     localStorage.setItem("mcfPinVerified","yes");
     currentWorkingDate=wd;
+    localStorage.setItem("mcfWorkingDate", currentWorkingDate);
     $("loginPage").classList.add("hidden");
     $("app").classList.remove("hidden");
     home();
@@ -317,7 +347,22 @@ function login(){
     syncPending();
   }).withFailureHandler(()=>toast("Internet/server error. Try again.")).validatePin(pin);
 }
-function logout(){currentWorkingDate="";$("app").classList.add("hidden");$("loginPage").classList.remove("hidden");$("pin").value="";$("workingDate").value=today()}
+function logout(){
+  const finish=()=>{
+    clearSession_();
+    currentWorkingDate="";
+    localStorage.removeItem("mcfWorkingDate");
+    $("app").classList.add("hidden");
+    $("loginPage").classList.remove("hidden");
+    $("pin").value="";
+    $("workingDate").value=today();
+  };
+  if(navigator.onLine && getSessionToken_()){
+    google.script.run.withSuccessHandler(finish).withFailureHandler(finish).logout();
+  } else {
+    finish();
+  }
+}
 function home(){
   if(!currentWorkingDate)return;
   show("homePage");$("wdLabel").textContent=currentWorkingDate;
@@ -433,11 +478,16 @@ function generateReport(){
 }
 
 function managePage(){show("managePage");$("manageList").innerHTML="<p class='small'>Use date range or month to search.</p>"}
-function loadManage(includeDeleted){
-  const f={from:$("manageFrom").value,to:$("manageTo").value,month:$("manageMonth").value,includeDeleted};
+function loadManage(deletedOnly){
+  const f={
+    from:$("manageFrom").value,
+    to:$("manageTo").value,
+    month:$("manageMonth").value,
+    deletedOnly:!!deletedOnly
+  };
   $("manageList").innerHTML="<p class='small'>Loading...</p>";
   google.script.run.withSuccessHandler(rows=>{
-    $("manageList").innerHTML=rows.length?rows.map(r=>recordHtml(r,true,includeDeleted)).join(""):"<p class='small'>No records found.</p>";
+    $("manageList").innerHTML=rows.length?rows.map(r=>recordHtml(r,true,deletedOnly)).join(""):"<p class='small'>No records found.</p>";
   }).getManageData(f);
 }
 function recordHtml(r,actions,deletedView){
