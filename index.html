@@ -134,6 +134,26 @@ label{font-size:13px;color:var(--muted);font-weight:bold}
 */
 const API_URL = "https://script.google.com/macros/s/AKfycbz6Lc83l0VV8--0hFeC3f4wNOsPiVxITwAiMrhQVUr-v7nhyUI2Op3v9X9nyQHsUGW0Qg/exec";
 
+
+
+const SESSION_KEY = "mcf_session_token";
+const SESSION_EXPIRY_KEY = "mcf_session_expires";
+function getSessionToken_(){ return localStorage.getItem(SESSION_KEY) || ""; }
+function sessionExpired_(){
+  const exp = Number(localStorage.getItem(SESSION_EXPIRY_KEY) || "0");
+  return !!exp && Date.now() > exp;
+}
+function setSession_(session){
+  if (!session || !session.token) return;
+  localStorage.setItem(SESSION_KEY, session.token);
+  localStorage.setItem(SESSION_EXPIRY_KEY, String(session.expiresAt || ""));
+  localStorage.setItem("mcfPinVerified", "yes");
+}
+function clearSession_(){
+  localStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem(SESSION_EXPIRY_KEY);
+  localStorage.removeItem("mcfPinVerified");
+}
 function jsonpApi(action, params) {
   return new Promise((resolve, reject) => {
     if (!API_URL || API_URL.indexOf("PASTE_YOUR") >= 0) {
@@ -142,6 +162,14 @@ function jsonpApi(action, params) {
     }
     const cb = "mcfcb_" + Date.now() + "_" + Math.random().toString(36).slice(2);
     const q = new URLSearchParams({action, callback: cb});
+    if (action !== "login") {
+      const token = getSessionToken_();
+      if (!token || sessionExpired_()) {
+        reject(new Error("Session expired. Please connect to internet and login again."));
+        return;
+      }
+      q.set("token", token);
+    }
     Object.keys(params || {}).forEach(k => {
       const v = params[k];
       q.set(k, typeof v === "string" ? v : JSON.stringify(v));
@@ -164,7 +192,12 @@ function jsonpApi(action, params) {
 // continue to work in the installable PWA.
 (function(){
   const methods = {
-    validatePin: (pin) => jsonpApi("validatePin", {pin}).then(r => r.ok),
+    validatePin: (pin) => jsonpApi("login", {pin}).then(r => {
+      if (r && r.ok) setSession_(r);
+      return !!(r && r.ok);
+    }),
+    logout: () => jsonpApi("logout", {}).then(r => { clearSession_(); return r; }),
+    changePin: (oldPin, newPin) => jsonpApi("changePin", {payload:{oldPin,newPin}}),
     getDashboard: (workingDate) => jsonpApi("dashboard", {workingDate}).then(r => {
       if (!r.ok) throw new Error(r.error || "Dashboard error");
       localStorage.setItem("mcf_cache_dashboard_"+workingDate, JSON.stringify(r.data));
@@ -260,7 +293,7 @@ function login(){
   // Offline login is allowed only on a device where this PIN was
   // successfully verified online earlier.
   if(!navigator.onLine){
-    if(localStorage.getItem("mcfPinVerified")==="yes"){
+    if(localStorage.getItem("mcfPinVerified")==="yes" && !sessionExpired_()){
       currentWorkingDate=wd;
       $("loginPage").classList.add("hidden");
       $("app").classList.remove("hidden");
