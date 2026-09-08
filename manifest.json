@@ -1,0 +1,21 @@
+{
+  "name": "My Chicken Farm",
+  "short_name": "Chicken Farm",
+  "description": "Offline-capable chicken farm records with automatic Google Sheet sync.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f4f6f7",
+  "theme_color": "#236744",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

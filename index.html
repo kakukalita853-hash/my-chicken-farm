@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="theme-color" content="#236744">
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<style>
+:root{
+  --green:#236744; --green2:#2f8058; --blue:#49678f; --red:#b74742;
+  --bg:#f4f6f7; --card:#ffffff; --text:#24313a; --muted:#6f7c85;
+  --shadow:0 8px 25px rgba(20,45,35,.10);
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text)}
+header{background:linear-gradient(135deg,var(--green),var(--green2));color:#fff;padding:15px 18px;font-size:18px;font-weight:bold;box-shadow:0 2px 8px rgba(0,0,0,.12);cursor:pointer;transition:.25s}
+header:hover{filter:brightness(1.08);letter-spacing:.2px}
+main{max-width:760px;margin:auto;padding:16px}
+.card{background:var(--card);border-radius:16px;padding:16px;margin:12px 0;box-shadow:var(--shadow);animation:fadeUp .28s ease}
+.hidden{display:none!important}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.stat{background:#fff;border-radius:14px;padding:14px;box-shadow:var(--shadow);transition:.2s}
+.stat:hover{transform:translateY(-3px);box-shadow:0 12px 30px rgba(20,45,35,.16)}
+.stat small{color:var(--muted);display:block;margin-bottom:5px}.stat b{font-size:21px}
+button{width:100%;border:0;border-radius:10px;padding:14px;margin:5px 0;color:#fff;background:var(--green);font-size:15px;cursor:pointer;transition:transform .15s,filter .15s,box-shadow .15s}
+button:hover{filter:brightness(1.12);transform:translateY(-2px);box-shadow:0 7px 15px rgba(0,0,0,.14)}
+button:active{transform:scale(.98)}
+button.blue{background:var(--blue)} button.red{background:var(--red)} button.gray{background:#7a8790}
+input,select,textarea{width:100%;padding:12px;border:1px solid #d9dfe3;border-radius:10px;margin:5px 0 11px;font-size:15px;background:#fff}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--green2);box-shadow:0 0 0 3px rgba(47,128,88,.12)}
+label{font-size:13px;color:var(--muted);font-weight:bold}
+.title{font-size:20px;font-weight:bold;margin-bottom:10px}
+.small{font-size:12px;color:var(--muted)}
+.stock,.record{display:flex;justify-content:space-between;align-items:center;padding:12px;border-bottom:1px solid #edf0f2}
+.stock:last-child,.record:last-child{border-bottom:0}
+.qty{font-size:18px;color:var(--green)}
+.pill{padding:4px 8px;border-radius:999px;background:#eef6f1;color:var(--green);font-size:11px;font-weight:bold}
+.row-actions{display:flex;gap:6px}.row-actions button{width:auto;padding:8px 10px;margin:0;font-size:12px}
+.record-main{min-width:0}.record-main b{display:block}.record-main small{color:var(--muted)}
+.tabs{display:flex;gap:8px;margin-bottom:10px}.tabs button{margin:0}.tabactive{outline:3px solid rgba(47,128,88,.18)}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%) translateY(80px);background:#24313a;color:#fff;padding:12px 18px;border-radius:999px;transition:.3s;z-index:99}.toast.show{transform:translateX(-50%) translateY(0)}
+@keyframes fadeUp{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
+@media(max-width:480px){main{padding:12px}.grid{gap:8px}.stat{padding:12px}.record{align-items:flex-start;gap:8px}.row-actions{flex-direction:column}}
+</style>
+</head>
+<body>
+<header onclick="home()">🐔 My Chicken Farm</header>
+<div id="netStatus" style="padding:7px 15px;text-align:center;font-size:12px;background:#edf5f0;color:#236744">Checking connection...</div>
+<div id="toast" class="toast"></div>
+<main>
+
+<div id="loginPage" class="card">
+  <div class="title">🔐 Login</div>
+  <label>PIN</label><input id="pin" type="password" inputmode="numeric" placeholder="Enter PIN">
+  <label>Working Date (you can select back date)</label><input id="workingDate" type="date">
+  <button onclick="login()">Login</button>
+  <p class="small">All new entries will be saved on the selected Working Date. Reports remain independent.</p>
+</div>
+
+<div id="app" class="hidden">
+  <div id="homePage">
+    <div class="grid">
+      <div class="stat"><small>Live Chicken</small><b id="live">0</b></div>
+      <div class="stat"><small>Feed Stock (KG)</small><b id="feedStock">0</b></div>
+      <div class="stat"><small>Total Sales</small><b id="sales">₹0</b></div>
+      <div class="stat"><small>Profit / Loss</small><b id="profit">₹0</b></div>
+    </div>
+    <div class="card">
+      <div class="small">Working Date: <b id="wdLabel"></b></div>
+      <div class="grid">
+        <button onclick="entry('chickens')">🐔 Chicken</button>
+        <button onclick="entry('feed')">🌽 Feed</button>
+        <button onclick="entry('medicine')">💊 Medicine</button>
+        <button onclick="entry('expenses')">💰 Expense</button>
+      </div>
+      <button class="blue" onclick="reportPage()">📊 Report</button>
+      <button class="red" onclick="managePage()">🗂 Manage / Delete</button>
+      <button class="gray" onclick="logout()">🔒 Logout</button>
+    </div>
+  </div>
+
+  <div id="entryPage" class="hidden">
+    <div class="card">
+      <div id="entryTitle" class="title"></div>
+      <div id="medicineStockBox" class="hidden">
+        <div class="title" style="font-size:16px">Current Available Medicine</div>
+        <div id="stockList">Loading...</div>
+      </div>
+      <div id="entryForm"></div>
+      <button class="gray" onclick="home()">← Back</button>
+    </div>
+  </div>
+
+  <div id="reportPage" class="hidden">
+    <div class="card">
+      <div class="title">📊 Report</div>
+      <div class="tabs">
+        <button id="dateTab" onclick="setReportMode('date')">Date-wise</button>
+        <button id="monthTab" class="blue" onclick="setReportMode('month')">Month-wise</button>
+      </div>
+      <div id="dateReportControls">
+        <label>From Date</label><input id="reportFrom" type="date">
+        <label>To Date</label><input id="reportTo" type="date">
+      </div>
+      <div id="monthReportControls" class="hidden">
+        <label>Month</label><input id="reportMonth" type="month">
+      </div>
+      <button onclick="generateReport()">Generate Report</button>
+      <div id="reportResult"></div>
+      <button class="gray" onclick="home()">← Back</button>
+    </div>
+  </div>
+
+  <div id="managePage" class="hidden">
+    <div class="card">
+      <div class="title">🗂 Manage Data</div>
+      <label>From Date</label><input id="manageFrom" type="date">
+      <label>To Date</label><input id="manageTo" type="date">
+      <label>Or Month</label><input id="manageMonth" type="month">
+      <button onclick="loadManage(false)">Search Active Data</button>
+      <button class="blue" onclick="loadManage(true)">♻ Deleted Data / Restore</button>
+      <div id="manageList"></div>
+      <button class="gray" onclick="home()">← Back</button>
+    </div>
+  </div>
+</div>
+</main>
+
+<script>
+
+/*
+  V6 PWA bridge
+  IMPORTANT: after deploying Apps Script, paste the /exec URL below.
+*/
+const API_URL = "https://script.google.com/macros/s/AKfycbz6Lc83l0VV8--0hFeC3f4wNOsPiVxITwAiMrhQVUr-v7nhyUI2Op3v9X9nyQHsUGW0Qg/exec";
+
+function jsonpApi(action, params) {
+  return new Promise((resolve, reject) => {
+    if (!API_URL || API_URL.indexOf("PASTE_YOUR") >= 0) {
+      reject(new Error("API URL is not configured"));
+      return;
+    }
+    const cb = "mcfcb_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+    const q = new URLSearchParams({action, callback: cb});
+    Object.keys(params || {}).forEach(k => {
+      const v = params[k];
+      q.set(k, typeof v === "string" ? v : JSON.stringify(v));
+    });
+    const s = document.createElement("script");
+    const cleanup = () => {
+      try { delete window[cb]; } catch(e) {}
+      s.remove();
+    };
+    const timer = setTimeout(() => { cleanup(); reject(new Error("API timeout")); }, 15000);
+    window[cb] = data => { clearTimeout(timer); cleanup(); resolve(data); };
+    s.onerror = () => { clearTimeout(timer); cleanup(); reject(new Error("Network/API error")); };
+    s.src = API_URL + (API_URL.includes("?") ? "&" : "?") + q.toString();
+    document.head.appendChild(s);
+  });
+}
+
+// Compatibility layer: existing V5 calls such as
+// google.script.run.withSuccessHandler(...).getDashboard(date)
+// continue to work in the installable PWA.
+(function(){
+  const methods = {
+    validatePin: (pin) => jsonpApi("validatePin", {pin}).then(r => r.ok),
+    getDashboard: (workingDate) => jsonpApi("dashboard", {workingDate}).then(r => {
+      if (!r.ok) throw new Error(r.error || "Dashboard error");
+      localStorage.setItem("mcf_cache_dashboard_"+workingDate, JSON.stringify(r.data));
+      return r.data;
+    }),
+    medicineStock: (workingDate) => jsonpApi("medicineStock", {workingDate}).then(r => {
+      if (!r.ok) throw new Error(r.error || "Medicine stock error");
+      localStorage.setItem("mcf_cache_medicine_"+workingDate, JSON.stringify(r.data));
+      return r.data;
+    }),
+    getReport: (options) => jsonpApi("report", {options}).then(r => {
+      if (!r.ok) throw new Error(r.error || "Report error");
+      return r.data;
+    }),
+    getManageData: (filter) => jsonpApi("manage", {filter}).then(r => {
+      if (!r.ok) throw new Error(r.error || "Manage error");
+      return r.data;
+    }),
+    saveEntry: (entry) => jsonpApi("save", {entry}),
+    setDeleted: (sheetName,rowNumber,deleted) => jsonpApi("setDeleted", {payload:{sheetName,rowNumber,deleted}})
+  };
+
+  function runner(success, failure) {
+    const obj = {
+      withSuccessHandler(fn){ return runner(fn, failure); },
+      withFailureHandler(fn){ return runner(success, fn); }
+    };
+    Object.keys(methods).forEach(name => {
+      obj[name] = (...args) => {
+        methods[name](...args).then(x => success && success(x)).catch(e => failure && failure(e));
+        return obj;
+      };
+    });
+    return obj;
+  }
+  window.google = window.google || {};
+  window.google.script = window.google.script || {};
+  window.google.script.run = runner(null, null);
+})();
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js"));
+}
+
+const $=id=>document.getElementById(id);
+let reportMode="date";
+let currentWorkingDate=localStorage.getItem("mcfWorkingDate")||"";
+let syncing=false;
+
+function uid(){return "mcf_"+Date.now()+"_"+Math.random().toString(36).slice(2,10)}
+function pendingEntries(){try{return JSON.parse(localStorage.getItem("mcfPendingEntries")||"[]")}catch(e){return[]}}
+function setPendingEntries(a){localStorage.setItem("mcfPendingEntries",JSON.stringify(a))}
+function updateNetworkStatus(){
+  const n=pendingEntries().length, el=$("netStatus");
+  if(!navigator.onLine){el.style.background="#fff3df";el.style.color="#9a5b00";el.textContent="🟠 Offline App — "+n+" pending data";return}
+  if(syncing){el.style.background="#eef2f8";el.style.color="#49678f";el.textContent="🔄 Online — syncing pending data";return}
+  el.style.background="#edf5f0";el.style.color="#236744";
+  el.textContent=n?"🟢 Online — "+n+" pending data ready to sync":"🟢 Online & Synced";
+}
+function queueEntry(x){const a=pendingEntries();a.push(x);setPendingEntries(a);updateNetworkStatus()}
+function syncPending(){
+  if(!navigator.onLine||syncing)return;
+  const a=pendingEntries();if(!a.length){updateNetworkStatus();return}
+  syncing=true;updateNetworkStatus();let i=0,keep=[];
+  function next(){
+    if(i>=a.length){setPendingEntries(keep);syncing=false;updateNetworkStatus();if(keep.length<a.length)toast((a.length-keep.length)+" offline entries synced");return}
+    const x=a[i++];
+    google.script.run.withSuccessHandler(next).withFailureHandler(()=>{keep.push(x);next()}).saveEntry(x);
+  }
+  next();
+}
+window.addEventListener("online",()=>{updateNetworkStatus();setTimeout(syncPending,500)});
+window.addEventListener("offline",updateNetworkStatus);
+setTimeout(updateNetworkStatus,200);
+
+
+function toast(msg){const t=$("toast");t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2500)}
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function money(n){return "₹"+Number(n||0).toFixed(2)}
+function hidePages(){["homePage","entryPage","reportPage","managePage"].forEach(id=>$(id).classList.add("hidden"))}
+function show(id){hidePages();$(id).classList.remove("hidden")}
+function today(){
+  const d=new Date();
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+}
+
+$("workingDate").value=today();
+
+function login(){
+  const pin=$("pin").value.trim(), wd=$("workingDate").value;
+  if(!wd){toast("Select Working Date");return}
+
+  // Offline login is allowed only on a device where this PIN was
+  // successfully verified online earlier.
+  if(!navigator.onLine){
+    if(localStorage.getItem("mcfPinVerified")==="yes"){
+      currentWorkingDate=wd;
+      $("loginPage").classList.add("hidden");
+      $("app").classList.remove("hidden");
+      toast("Offline mode — entries will sync automatically");
+      home();
+      updateNetworkStatus();
+      return;
+    }
+    toast("First login on this device must be done with internet");
+    return;
+  }
+
+  google.script.run.withSuccessHandler(ok=>{
+    if(!ok){toast("Wrong PIN");return}
+    localStorage.setItem("mcfPinVerified","yes");
+    currentWorkingDate=wd;
+    $("loginPage").classList.add("hidden");
+    $("app").classList.remove("hidden");
+    home();
+    updateNetworkStatus();
+    syncPending();
+  }).withFailureHandler(()=>toast("Internet/server error. Try again.")).validatePin(pin);
+}
+function logout(){currentWorkingDate="";$("app").classList.add("hidden");$("loginPage").classList.remove("hidden");$("pin").value="";$("workingDate").value=today()}
+function home(){
+  if(!currentWorkingDate)return;
+  show("homePage");$("wdLabel").textContent=currentWorkingDate;
+  google.script.run.withSuccessHandler(d=>{
+    $("live").textContent=d.liveChicken;$("feedStock").textContent=d.feedStock;
+    $("sales").textContent=money(d.totalSales);$("profit").textContent=money(d.profitLoss);
+  }).withFailureHandler(()=>{
+    const c=localStorage.getItem("mcf_cache_dashboard_"+currentWorkingDate);
+    if(c){const d=JSON.parse(c);$("live").textContent=d.liveChicken;$("feedStock").textContent=d.feedStock;$("sales").textContent=money(d.totalSales);$("profit").textContent=money(d.profitLoss);toast("Showing last cached data — offline")}
+    else toast("Offline: dashboard will update after sync");
+  }).getDashboard(currentWorkingDate);
+}
+
+function entry(sheet){
+  show("entryPage");$("medicineStockBox").classList.add("hidden");
+  const titles={chickens:"🐔 Chicken Entry",feed:"🌽 Feed Entry",medicine:"💊 Medicine Entry",expenses:"💰 Expense Entry"};
+  $("entryTitle").textContent=titles[sheet];
+
+  let html="";
+  if(sheet==="chickens") html=`
+    <label>Type</label><select id="eType"><option>Purchase</option><option>Sale</option><option>Death</option></select>
+    <label>Quantity (Chicken)</label><input id="eQty" type="number" step="1" value="1">
+    <label>Total Weight (KG) - Sale optional</label><input id="eWeight" type="number" step="0.001">
+    <label>Rate per KG - variable market price</label><input id="eRate" type="number" step="0.01">
+    <label>Amount (optional, auto = Weight × Rate)</label><input id="eAmount" type="number" step="0.01">
+    <label>Notes</label><textarea id="eNotes"></textarea>
+    <button onclick="saveChicken()">Save Chicken Entry</button>`;
+  if(sheet==="feed") html=`
+    <label>Type</label><select id="eType"><option>Purchase</option><option>Use</option></select>
+    <label>Feed Name</label><input id="eName" placeholder="Feed name">
+    <label>Quantity (KG)</label><input id="eQty" type="number" step="0.001">
+    <label>Amount</label><input id="eAmount" type="number" step="0.01">
+    <label>Notes</label><textarea id="eNotes"></textarea>
+    <button onclick="saveCommon('feed')">Save Feed Entry</button>`;
+  if(sheet==="medicine") html=`
+    <label>Type</label><select id="eType"><option>Purchase</option><option>Use</option></select>
+    <label>Medicine Name</label><input id="eName" placeholder="Medicine name">
+    <label>Quantity</label><input id="eQty" type="number" step="0.001">
+    <label>Amount</label><input id="eAmount" type="number" step="0.01">
+    <label>Notes</label><textarea id="eNotes"></textarea>
+    <button onclick="saveCommon('medicine')">Save Medicine Entry</button>`;
+  if(sheet==="expenses") html=`
+    <label>Expense Category</label><input id="eCategory" placeholder="Electricity, Transport etc.">
+    <label>Amount</label><input id="eAmount" type="number" step="0.01">
+    <label>Notes</label><textarea id="eNotes"></textarea>
+    <button onclick="saveExpense()">Save Expense</button>`;
+
+  $("entryForm").innerHTML=html;
+  if(sheet==="medicine") loadMedicineStock();
+}
+function loadMedicineStock(){
+  $("medicineStockBox").classList.remove("hidden");
+  $("stockList").innerHTML="<p class='small'>Loading medicine stock...</p>";
+  google.script.run.withSuccessHandler(a=>{
+    $("stockList").innerHTML=a.length?a.map(x=>`<div class="stock"><span>💊 <b>${esc(x.name)}</b><br><small>${esc(x.status)} as of ${currentWorkingDate}</small></span><b class="qty">${x.quantity}</b></div>`).join(""):"<p class='small'>No medicine record up to this Working Date.</p>";
+  }).withFailureHandler(e=>{
+    const c=localStorage.getItem("mcf_cache_medicine_"+currentWorkingDate);
+    if(c){const a=JSON.parse(c);$("stockList").innerHTML=a.length?a.map(x=>`<div class="stock"><span>💊 <b>${esc(x.name)}</b><br><small>${esc(x.status)} as of ${currentWorkingDate} (cached)</small></span><b class="qty">${x.quantity}</b></div>`).join(""):"<p class='small'>No cached medicine record.</p>"}
+    else $("stockList").innerHTML="<p class='small'>Offline — medicine stock will refresh when online.</p>";
+  }).medicineStock(currentWorkingDate);
+}
+function saveChicken(){
+  save({sheet:"chickens",date:currentWorkingDate,type:$("eType").value,quantity:$("eQty").value,weightKg:$("eWeight").value,ratePerKg:$("eRate").value,amount:$("eAmount").value,notes:$("eNotes").value});
+}
+function saveCommon(sheet){
+  const name=$("eName").value.trim();if(!name){toast("Enter name");return}
+  save({sheet,date:currentWorkingDate,type:$("eType").value,name,quantity:$("eQty").value,amount:$("eAmount").value,notes:$("eNotes").value});
+}
+function saveExpense(){
+  save({sheet:"expenses",date:currentWorkingDate,category:$("eCategory").value,amount:$("eAmount").value,notes:$("eNotes").value});
+}
+function save(obj){
+  obj.syncId=obj.syncId||uid();
+
+  if(!navigator.onLine){
+    queueEntry(obj);
+    toast("Saved offline — auto sync when internet returns");
+    entry(obj.sheet);
+    return;
+  }
+
+  google.script.run.withSuccessHandler(()=>{
+    toast("Saved successfully");
+    entry(obj.sheet);
+    updateNetworkStatus();
+  }).withFailureHandler(()=>{
+    queueEntry(obj);
+    toast("Network/server issue — saved offline for auto sync");
+    entry(obj.sheet);
+  }).saveEntry(obj);
+}
+
+function reportPage(){show("reportPage");setReportMode("date");}
+function setReportMode(mode){
+  reportMode=mode;
+  $("dateReportControls").classList.toggle("hidden",mode!=="date");
+  $("monthReportControls").classList.toggle("hidden",mode!=="month");
+  $("dateTab").classList.toggle("blue",mode==="date");$("monthTab").classList.toggle("blue",mode==="month");
+}
+function generateReport(){
+  const opt=reportMode==="date"?{mode:"date",from:$("reportFrom").value,to:$("reportTo").value}:{mode:"month",month:$("reportMonth").value};
+  google.script.run.withSuccessHandler(r=>{
+    const t=r.totals;
+    let html=`<div class="card"><div class="grid">
+      <div class="stat"><small>Sales</small><b>${money(t.sales)}</b></div>
+      <div class="stat"><small>Total Expense</small><b>${money(t.totalExpense)}</b></div>
+      <div class="stat"><small>Profit / Loss</small><b>${money(t.profitLoss)}</b></div>
+      <div class="stat"><small>Records</small><b>${r.rows.length}</b></div>
+    </div></div>`;
+    html+=r.rows.length?r.rows.map(r=>recordHtml(r,false)).join(""):"<p class='small'>No data found.</p>";
+    $("reportResult").innerHTML=html;
+  }).getReport(opt);
+}
+
+function managePage(){show("managePage");$("manageList").innerHTML="<p class='small'>Use date range or month to search.</p>"}
+function loadManage(includeDeleted){
+  const f={from:$("manageFrom").value,to:$("manageTo").value,month:$("manageMonth").value,includeDeleted};
+  $("manageList").innerHTML="<p class='small'>Loading...</p>";
+  google.script.run.withSuccessHandler(rows=>{
+    $("manageList").innerHTML=rows.length?rows.map(r=>recordHtml(r,true,includeDeleted)).join(""):"<p class='small'>No records found.</p>";
+  }).getManageData(f);
+}
+function recordHtml(r,actions,deletedView){
+  const title=r.sheet==="expenses"?r.category:(r.name||r.type);
+  const detail=`${r.sheet} • ${r.type||""} • Qty: ${r.quantity||r.weightKg||0} • ${r.amount?money(r.amount):""}`;
+  return `<div class="record"><div class="record-main"><b>${esc(r.date)} — ${esc(title)}</b><small>${esc(detail)} ${r.notes?" • "+esc(r.notes):""}</small></div>
+  ${actions?`<div class="row-actions">${deletedView?`<button class="blue" onclick="restoreRow('${r.sheet}',${r.row})">Restore</button>`:`<button class="red" onclick="deleteRow('${r.sheet}',${r.row})">Delete</button>`}</div>`:""}</div>`;
+}
+function deleteRow(sheet,row){if(!confirm("Delete this record? It can be restored later."))return;google.script.run.withSuccessHandler(()=>{toast("Moved to deleted data");loadManage(false)}).setDeleted(sheet,row,true)}
+function restoreRow(sheet,row){google.script.run.withSuccessHandler(()=>{toast("Record restored");loadManage(true)}).setDeleted(sheet,row,false)}
+updateNetworkStatus();
+</script>
+</body>
+</html>
