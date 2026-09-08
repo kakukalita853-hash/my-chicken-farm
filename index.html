@@ -38,7 +38,7 @@ label{font-size:13px;color:var(--muted);font-weight:bold}
 .row-actions{display:flex;gap:6px}.row-actions button{width:auto;padding:8px 10px;margin:0;font-size:12px}
 .record-main{min-width:0}.record-main b{display:block}.record-main small{color:var(--muted)}
 .tabs{display:flex;gap:8px;margin-bottom:10px}.tabs button{margin:0}.tabactive{outline:3px solid rgba(47,128,88,.18)}
-.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%) translateY(80px);background:#24313a;color:#fff;padding:12px 18px;border-radius:999px;transition:.3s;z-index:99}.toast.show{transform:translateX(-50%) translateY(0)}
+.toast{position:fixed;left:50%;bottom:22px;min-width:250px;max-width:min(92vw,460px);display:flex;align-items:center;gap:10px;transform:translateX(-50%) translateY(130px) scale(.96);opacity:0;background:#24313a;color:#fff;padding:14px 17px;border-radius:16px;box-shadow:0 16px 40px rgba(0,0,0,.25);transition:transform .34s cubic-bezier(.2,.8,.2,1),opacity .25s;z-index:9999;font-size:14px;font-weight:bold}.toast.show{transform:translateX(-50%) translateY(0) scale(1);opacity:1}.toast.success{background:#236744}.toast.error{background:#b74742}.toast.warn{background:#9a5b00}.toast.info{background:#49678f}.toast-icon{font-size:22px}.login-status{min-height:22px;margin:8px 0 0;text-align:center;font-size:13px;font-weight:bold}.login-status.locked{color:#b74742}.login-status.ready{color:#236744}.security-item{padding:12px;border:1px solid #edf0f2;border-radius:12px;margin:8px 0}.security-item b{display:block}.security-item small{color:var(--muted)}
 @keyframes fadeUp{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
 @media(max-width:480px){main{padding:12px}.grid{gap:8px}.stat{padding:12px}.record{align-items:flex-start;gap:8px}.row-actions{flex-direction:column}}
 </style>
@@ -46,14 +46,15 @@ label{font-size:13px;color:var(--muted);font-weight:bold}
 <body>
 <header onclick="home()">🐔 My Chicken Farm</header>
 <div id="netStatus" style="padding:7px 15px;text-align:center;font-size:12px;background:#edf5f0;color:#236744">Checking connection...</div>
-<div id="toast" class="toast"></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
 <main>
 
 <div id="loginPage" class="card">
   <div class="title">🔐 Login</div>
   <label>Working Date (you can select back date)</label><input id="workingDate" type="date">
   <label>PIN</label><input id="pin" type="password" inputmode="numeric" placeholder="Enter PIN">
-  <button onclick="login()">Login</button>
+  <button id="loginBtn" onclick="login()">Login</button>
+  <div id="loginStatus" class="login-status"></div>
   <p class="small">All new entries will be saved on the selected Working Date. Reports remain independent.</p>
 </div>
 
@@ -75,6 +76,7 @@ label{font-size:13px;color:var(--muted);font-weight:bold}
       </div>
       <button class="blue" onclick="reportPage()">📊 Report</button>
       <button class="red" onclick="managePage()">🗂 Manage / Delete</button>
+      <button class="blue" onclick="securityPage()">🛡 Sessions & Security</button>
       <button class="gray" onclick="logout()">🔒 Logout</button>
     </div>
   </div>
@@ -107,6 +109,17 @@ label{font-size:13px;color:var(--muted);font-weight:bold}
       </div>
       <button onclick="generateReport()">Generate Report</button>
       <div id="reportResult"></div>
+      <button class="gray" onclick="home()">← Back</button>
+    </div>
+  </div>
+
+
+  <div id="securityPage" class="hidden">
+    <div class="card">
+      <div class="title">🛡 Sessions & Security</div>
+      <div class="small">Session expires 7 days after login. You can review and remove other active devices.</div>
+      <div id="sessionList"><p class="small">Loading sessions...</p></div>
+      <button class="red" onclick="logoutOthers()">🚪 Logout Other Devices</button>
       <button class="gray" onclick="home()">← Back</button>
     </div>
   </div>
@@ -149,12 +162,10 @@ function setSession_(session){
   if (!session || !session.token) return;
   localStorage.setItem(SESSION_KEY, session.token);
   localStorage.setItem(SESSION_EXPIRY_KEY, String(session.expiresAt || ""));
-  localStorage.setItem("mcfPinVerified", "yes");
 }
 function clearSession_(){
   localStorage.removeItem(SESSION_KEY);
   localStorage.removeItem(SESSION_EXPIRY_KEY);
-  localStorage.removeItem("mcfPinVerified");
 }
 function jsonpApi(action, params) {
   return new Promise((resolve, reject) => {
@@ -164,7 +175,7 @@ function jsonpApi(action, params) {
     }
     const cb = "mcfcb_" + Date.now() + "_" + Math.random().toString(36).slice(2);
     const q = new URLSearchParams({action, callback: cb});
-    if (action !== "login") {
+    if (action !== "login" && action !== "loginStatus") {
       const token = getSessionToken_();
       if (!token || sessionExpired_()) {
         reject(new Error("Session expired. Please connect to internet and login again."));
@@ -193,48 +204,31 @@ function jsonpApi(action, params) {
 // google.script.run.withSuccessHandler(...).getDashboard(date)
 // continue to work in the installable PWA.
 (function(){
+  function requireOk(r, label){
+    if (!r || !r.ok) throw new Error((r && r.error) || label || "Server error");
+    return r.data !== undefined ? r.data : r;
+  }
   const methods = {
     validatePin: (pin) => jsonpApi("login", {pin,deviceId:getDeviceId_(),deviceName:getDeviceName_()}).then(r => {
-      if (r && r.ok) setSession_(r);
-      return !!(r && r.ok);
+      if (r && r.ok) { setSession_(r); return true; }
+      return false;
     }),
-    logout: () => jsonpApi("logout", {}).then(r => { clearSession_(); return r; }),
-    changePin: (oldPin, newPin) => jsonpApi("changePin", {payload:{oldPin,newPin}}),
-    getSessions: () => jsonpApi("sessions", {}),
-    logoutOthers: () => jsonpApi("logoutOthers", {}),
-    logoutSession: (sessionId) => jsonpApi("logoutSession", {payload:{sessionId}}),
-    getDashboard: (workingDate) => jsonpApi("dashboard", {workingDate}).then(r => {
-      if (!r.ok) throw new Error(r.error || "Dashboard error");
-      localStorage.setItem("mcf_cache_dashboard_"+workingDate, JSON.stringify(r.data));
-      return r.data;
-    }),
-    medicineStock: (workingDate) => jsonpApi("medicineStock", {workingDate}).then(r => {
-      if (!r.ok) throw new Error(r.error || "Medicine stock error");
-      localStorage.setItem("mcf_cache_medicine_"+workingDate, JSON.stringify(r.data));
-      return r.data;
-    }),
-    getReport: (options) => jsonpApi("report", {options}).then(r => {
-      if (!r.ok) throw new Error(r.error || "Report error");
-      return r.data;
-    }),
-    getManageData: (filter) => jsonpApi("manage", {filter}).then(r => {
-      if (!r.ok) throw new Error(r.error || "Manage error");
-      return r.data;
-    }),
-    saveEntry: (entry) => jsonpApi("save", {entry}),
-    setDeleted: (sheetName,rowNumber,deleted) => jsonpApi("setDeleted", {payload:{sheetName,rowNumber,deleted}})
+    logout: () => jsonpApi("logout", {}).then(r => { clearSession_(); return requireOk(r); }),
+    changePin: (oldPin, newPin) => jsonpApi("changePin", {payload:{oldPin,newPin}}).then(r=>requireOk(r)),
+    getSessions: () => jsonpApi("sessions", {}).then(r=>requireOk(r,"Sessions error")),
+    logoutOthers: () => jsonpApi("logoutOthers", {}).then(r=>requireOk(r)),
+    logoutSession: (sessionId) => jsonpApi("logoutSession", {payload:{sessionId}}).then(r=>requireOk(r)),
+    getDashboard: (workingDate) => jsonpApi("dashboard", {workingDate}).then(r => requireOk(r,"Dashboard error")),
+    medicineStock: (workingDate) => jsonpApi("medicineStock", {workingDate}).then(r => requireOk(r,"Medicine stock error")),
+    getReport: (options) => jsonpApi("report", {options}).then(r => requireOk(r,"Report error")),
+    getManageData: (filter) => jsonpApi("manage", {filter}).then(r => requireOk(r,"Manage error")),
+    saveEntry: (entry) => jsonpApi("save", {entry}).then(r => requireOk(r,"Save failed")),
+    setDeleted: (sheetName,rowNumber,deleted) => jsonpApi("setDeleted", {payload:{sheetName,rowNumber,deleted}}).then(r => requireOk(r,"Update failed"))
   };
-
   function runner(success, failure) {
-    const obj = {
-      withSuccessHandler(fn){ return runner(fn, failure); },
-      withFailureHandler(fn){ return runner(success, fn); }
-    };
+    const obj = { withSuccessHandler(fn){ return runner(fn, failure); }, withFailureHandler(fn){ return runner(success, fn); } };
     Object.keys(methods).forEach(name => {
-      obj[name] = (...args) => {
-        methods[name](...args).then(x => success && success(x)).catch(e => failure && failure(e));
-        return obj;
-      };
+      obj[name] = (...args) => { methods[name](...args).then(x => success && success(x)).catch(e => failure && failure(e)); return obj; };
     });
     return obj;
   }
@@ -279,10 +273,19 @@ window.addEventListener("offline",updateNetworkStatus);
 setTimeout(updateNetworkStatus,200);
 
 
-function toast(msg){const t=$("toast");t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2500)}
+let toastTimer=null;
+function toast(msg,type="info"){
+  const t=$("toast");
+  const icon={success:"✓",error:"!",warn:"⚠",info:"ℹ"}[type]||"ℹ";
+  t.className="toast "+type;
+  t.innerHTML='<span class="toast-icon">'+icon+'</span><span>'+esc(msg)+'</span>';
+  requestAnimationFrame(()=>t.classList.add("show"));
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>t.classList.remove("show"),3200);
+}
 function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function money(n){return "₹"+Number(n||0).toFixed(2)}
-function hidePages(){["homePage","entryPage","reportPage","managePage"].forEach(id=>$(id).classList.add("hidden"))}
+function hidePages(){["homePage","entryPage","reportPage","managePage","securityPage"].forEach(id=>$(id).classList.add("hidden"))}
 function show(id){hidePages();$(id).classList.remove("hidden")}
 function today(){
   const d=new Date();
@@ -291,62 +294,64 @@ function today(){
 
 $("workingDate").value=today();
 
-// Keep the user logged in after refresh while the secure backend session is still valid.
-function restoreSessionAfterRefresh_(){
-  const savedDate = localStorage.getItem("mcfWorkingDate") || "";
-  const token = getSessionToken_();
-
-  if (!savedDate || !token || sessionExpired_()) {
-    if (sessionExpired_()) {
-      clearSession_();
-      localStorage.removeItem("mcfWorkingDate");
-    }
-    return;
+// Secure session restoration. The UI is never unlocked merely because localStorage contains a value.
+let lockTimer=null;
+function clearLockTimer_(){ if(lockTimer){clearInterval(lockTimer);lockTimer=null;} }
+function showLockCountdown_(retryAt){
+  clearLockTimer_();
+  const status=$("loginStatus"), btn=$("loginBtn");
+  function tick(){
+    const left=Math.max(0, Math.ceil((Number(retryAt)-Date.now())/1000));
+    if(left<=0){ clearLockTimer_(); status.textContent="You can try again now."; status.className="login-status ready"; btn.disabled=false; return; }
+    const m=Math.floor(left/60), sec=left%60;
+    status.textContent="Login locked. Try again in "+m+":"+String(sec).padStart(2,"0");
+    status.className="login-status locked"; btn.disabled=true;
   }
-
-  currentWorkingDate = savedDate;
-  $("workingDate").value = savedDate;
-  $("loginPage").classList.add("hidden");
-  $("app").classList.remove("hidden");
-  home();
-  updateNetworkStatus();
-  if (navigator.onLine) syncPending();
+  tick(); lockTimer=setInterval(tick,1000);
 }
-
+function refreshLoginStatus_(){
+  if(!navigator.onLine) return;
+  jsonpApi("loginStatus",{}).then(r=>{ if(r && r.locked) showLockCountdown_(r.retryAt); }).catch(()=>{});
+}
+function restoreSessionAfterRefresh_(){
+  const savedDate=localStorage.getItem("mcfWorkingDate")||"";
+  const token=getSessionToken_();
+  if(!savedDate || !token || sessionExpired_()){ clearSession_(); return; }
+  // No offline refresh bypass: backend must validate the stored token before opening the app.
+  if(!navigator.onLine){ clearSession_(); return; }
+  currentWorkingDate=savedDate;
+  jsonpApi("dashboard",{workingDate:savedDate}).then(r=>{
+    if(!r || !r.ok) throw new Error("Session expired");
+    $("workingDate").value=savedDate;
+    $("loginPage").classList.add("hidden"); $("app").classList.remove("hidden"); home(); updateNetworkStatus(); syncPending();
+  }).catch(()=>{ clearSession_(); currentWorkingDate=""; localStorage.removeItem("mcfWorkingDate"); });
+}
 restoreSessionAfterRefresh_();
+refreshLoginStatus_();
 
 function login(){
   const pin=$("pin").value.trim(), wd=$("workingDate").value;
-  if(!wd){toast("Select Working Date");return}
-
-  // Offline login is allowed only on a device where this PIN was
-  // successfully verified online earlier.
-  if(!navigator.onLine){
-    if(localStorage.getItem("mcfPinVerified")==="yes" && !sessionExpired_()){
-      currentWorkingDate=wd;
-      $("loginPage").classList.add("hidden");
-      $("app").classList.remove("hidden");
-      toast("Offline mode — entries will sync automatically");
-      home();
-      updateNetworkStatus();
-      return;
+  if(!wd){toast("Select Working Date","warn");return}
+  if(!pin){toast("Enter your PIN","warn");return}
+  if(!navigator.onLine){toast("Internet is required to verify login securely","warn");return}
+  const btn=$("loginBtn"); btn.disabled=true; btn.textContent="Verifying...";
+  jsonpApi("login",{pin,deviceId:getDeviceId_(),deviceName:getDeviceName_()}).then(r=>{
+    if(r && r.ok){
+      setSession_(r); clearLockTimer_();
+      $("loginStatus").textContent="Login successful"; $("loginStatus").className="login-status ready";
+      currentWorkingDate=wd; localStorage.setItem("mcfWorkingDate",currentWorkingDate);
+      $("pin").value=""; $("loginPage").classList.add("hidden"); $("app").classList.remove("hidden");
+      home(); updateNetworkStatus(); syncPending(); toast("Login successful","success"); return;
     }
-    toast("First login on this device must be done with internet");
-    return;
-  }
-
-  google.script.run.withSuccessHandler(ok=>{
-    if(!ok){toast("Wrong PIN");return}
-    localStorage.setItem("mcfPinVerified","yes");
-    currentWorkingDate=wd;
-    localStorage.setItem("mcfWorkingDate", currentWorkingDate);
-    $("loginPage").classList.add("hidden");
-    $("app").classList.remove("hidden");
-    home();
-    updateNetworkStatus();
-    syncPending();
-  }).withFailureHandler(()=>toast("Internet/server error. Try again.")).validatePin(pin);
+    if(r && r.locked){ showLockCountdown_(r.retryAt); toast("Too many attempts. Login is temporarily locked.","error"); return; }
+    const left=(r && Number.isFinite(Number(r.remainingAttempts))) ? " — "+r.remainingAttempts+" attempts left" : "";
+    $("loginStatus").textContent="Wrong PIN"+left; $("loginStatus").className="login-status locked";
+    toast("Wrong PIN"+left,"error");
+  }).catch(()=>toast("Internet/server error. Try again.","error")).finally(()=>{
+    if(!lockTimer){btn.disabled=false; btn.textContent="Login";} else btn.textContent="Login";
+  });
 }
+
 function logout(){
   const finish=()=>{
     clearSession_();
@@ -369,11 +374,7 @@ function home(){
   google.script.run.withSuccessHandler(d=>{
     $("live").textContent=d.liveChicken;$("feedStock").textContent=d.feedStock;
     $("sales").textContent=money(d.totalSales);$("profit").textContent=money(d.profitLoss);
-  }).withFailureHandler(()=>{
-    const c=localStorage.getItem("mcf_cache_dashboard_"+currentWorkingDate);
-    if(c){const d=JSON.parse(c);$("live").textContent=d.liveChicken;$("feedStock").textContent=d.feedStock;$("sales").textContent=money(d.totalSales);$("profit").textContent=money(d.profitLoss);toast("Showing last cached data — offline")}
-    else toast("Offline: dashboard will update after sync");
-  }).getDashboard(currentWorkingDate);
+  }).withFailureHandler(()=>{toast("Dashboard unavailable while offline or after session expiry","warn");}).getDashboard(currentWorkingDate);
 }
 
 function entry(sheet){
@@ -418,11 +419,7 @@ function loadMedicineStock(){
   $("stockList").innerHTML="<p class='small'>Loading medicine stock...</p>";
   google.script.run.withSuccessHandler(a=>{
     $("stockList").innerHTML=a.length?a.map(x=>`<div class="stock"><span>💊 <b>${esc(x.name)}</b><br><small>${esc(x.status)} as of ${currentWorkingDate}</small></span><b class="qty">${x.quantity}</b></div>`).join(""):"<p class='small'>No medicine record up to this Working Date.</p>";
-  }).withFailureHandler(e=>{
-    const c=localStorage.getItem("mcf_cache_medicine_"+currentWorkingDate);
-    if(c){const a=JSON.parse(c);$("stockList").innerHTML=a.length?a.map(x=>`<div class="stock"><span>💊 <b>${esc(x.name)}</b><br><small>${esc(x.status)} as of ${currentWorkingDate} (cached)</small></span><b class="qty">${x.quantity}</b></div>`).join(""):"<p class='small'>No cached medicine record.</p>"}
-    else $("stockList").innerHTML="<p class='small'>Offline — medicine stock will refresh when online.</p>";
-  }).medicineStock(currentWorkingDate);
+  }).withFailureHandler(()=>{$("stockList").innerHTML="<p class='small'>Medicine stock requires a valid online session.</p>";}).medicineStock(currentWorkingDate);
 }
 function saveChicken(){
   save({sheet:"chickens",date:currentWorkingDate,type:$("eType").value,quantity:$("eQty").value,weightKg:$("eWeight").value,ratePerKg:$("eRate").value,amount:$("eAmount").value,notes:$("eNotes").value});
@@ -439,18 +436,18 @@ function save(obj){
 
   if(!navigator.onLine){
     queueEntry(obj);
-    toast("Saved offline — auto sync when internet returns");
+    toast("Saved safely on this device — it will sync when internet returns","success");
     entry(obj.sheet);
     return;
   }
 
   google.script.run.withSuccessHandler(()=>{
-    toast("Saved successfully");
+    toast("Entry saved successfully ✓","success");
     entry(obj.sheet);
     updateNetworkStatus();
   }).withFailureHandler(()=>{
     queueEntry(obj);
-    toast("Network/server issue — saved offline for auto sync");
+    toast("Server unavailable — entry kept safely for retry","warn");
     entry(obj.sheet);
   }).saveEntry(obj);
 }
@@ -498,6 +495,21 @@ function recordHtml(r,actions,deletedView){
 }
 function deleteRow(sheet,row){if(!confirm("Delete this record? It can be restored later."))return;google.script.run.withSuccessHandler(()=>{toast("Moved to deleted data");loadManage(false)}).setDeleted(sheet,row,true)}
 function restoreRow(sheet,row){google.script.run.withSuccessHandler(()=>{toast("Record restored");loadManage(true)}).setDeleted(sheet,row,false)}
+function fmtTime(ts){try{return new Date(Number(ts)).toLocaleString();}catch(e){return ""}}
+function securityPage(){
+  show("securityPage"); $("sessionList").innerHTML="<p class='small'>Loading active devices...</p>";
+  google.script.run.withSuccessHandler(rows=>{
+    $("sessionList").innerHTML=rows.length?rows.map(x=>`<div class="security-item"><b>${esc(x.deviceName)} ${x.current?'<span class="pill">This device</span>':''}</b><small>Last activity: ${esc(fmtTime(x.lastActivity))}<br>Expires: ${esc(fmtTime(x.expiresAt))}</small>${x.current?'':`<button class="red" style="margin-top:8px;padding:9px" onclick="logoutOneSession('${x.id}')">Logout this device</button>`}</div>`).join(""):"<p class='small'>No active sessions found.</p>";
+  }).withFailureHandler(e=>toast("Could not load sessions: "+(e.message||"error"),"error")).getSessions();
+}
+function logoutOneSession(id){
+  if(!confirm("Logout this device?"))return;
+  google.script.run.withSuccessHandler(()=>{toast("Device logged out","success");securityPage();}).withFailureHandler(e=>toast(e.message||"Could not logout device","error")).logoutSession(id);
+}
+function logoutOthers(){
+  if(!confirm("Logout all other devices?"))return;
+  google.script.run.withSuccessHandler(()=>{toast("All other devices logged out","success");securityPage();}).withFailureHandler(e=>toast(e.message||"Could not logout devices","error")).logoutOthers();
+}
 updateNetworkStatus();
 </script>
 </body>
