@@ -1,4 +1,4 @@
-const CACHE = "my-chicken-farm-v6-1";
+const CACHE = "my-chicken-farm-v6-fix2-1";
 const APP_FILES = ["./","./index.html","./manifest.json","./icon-192.png","./icon-512.png"];
 
 self.addEventListener("install", event => {
