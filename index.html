@@ -483,37 +483,76 @@ function generateReport(){
       <div class="stat"><small>Records</small><b>${r.rows.length}</b></div>
     </div></div>`;
 
+    // First group by main category (Chicken / Feed / Medicine / Expenses),
+    // then split each category by Type. Expenses do not have Type, so they
+    // are split by Expense Category.
     const groups={};
     r.rows.forEach(x=>{
-      const k=x.sheet==="expenses" ? "Expenses" :
+      const main=x.sheet==="expenses" ? "Expenses" :
         x.sheet==="chickens" ? "Chicken" :
         x.sheet==="feed" ? "Feed" : "Medicine";
-      (groups[k]||(groups[k]=[])).push(x);
+      const sub=x.sheet==="expenses"
+        ? (String(x.category||"Uncategorized").trim()||"Uncategorized")
+        : (String(x.type||"Unspecified").trim()||"Unspecified");
+      if(!groups[main]) groups[main]={};
+      (groups[main][sub]||(groups[main][sub]=[])).push(x);
     });
 
     const order=["Chicken","Feed","Medicine","Expenses"];
-    order.forEach(group=>{
-      const rows=groups[group]||[];
-      if(!rows.length) return;
-      html+=`<div class="card"><div class="title" style="font-size:17px">${esc(group)}</div>`;
-      html+=`<div class="table-wrap"><table class="report-table"><thead><tr>
-        <th>Date</th><th>Type / Category</th><th>Name</th><th>Quantity</th><th>Weight KG</th><th>Rate</th><th>Amount</th><th>Notes</th>
-      </tr></thead><tbody>`;
-      let totalAmount=0,totalQty=0,totalWeight=0;
-      rows.forEach(x=>{
-        const title=x.sheet==="expenses"?(x.category||"Expense"):(x.type||"");
-        const name=x.name||"";
-        const qty=Number(x.quantity||0), weight=Number(x.weightKg||0), amount=Number(x.amount||0);
-        totalAmount+=amount; totalQty+=qty; totalWeight+=weight;
-        html+=`<tr><td>${esc(x.date)}</td><td>${esc(title)}</td><td>${esc(name)}</td><td>${qty||""}</td><td>${weight||""}</td><td>${x.ratePerKg?money(x.ratePerKg):""}</td><td>${amount?money(amount):""}</td><td>${esc(x.notes||"")}</td></tr>`;
+    order.forEach(main=>{
+      const typeGroups=groups[main]||{};
+      const typeNames=Object.keys(typeGroups);
+      if(!typeNames.length) return;
+
+      html+=`<div class="card"><div class="title" style="font-size:18px">${esc(main)}</div>`;
+
+      typeNames.sort((a,b)=>a.localeCompare(b)).forEach(sub=>{
+        const rows=typeGroups[sub].slice().sort((a,b)=>String(a.date||"").localeCompare(String(b.date||"")) || Number(a.row||0)-Number(b.row||0));
+        let totalAmount=0,totalQty=0,totalWeight=0;
+
+        html+=`<div style="margin-top:14px"><div class="title" style="font-size:15px;color:var(--green)">${esc(sub)}</div>`;
+        html+=`<div class="table-wrap"><table class="report-table"><thead><tr>
+          <th>Date</th><th>Name / Category</th><th>Quantity</th><th>Weight KG</th><th>Rate</th><th>Amount</th><th>Notes</th>
+        </tr></thead><tbody>`;
+
+        rows.forEach(x=>{
+          const name=x.sheet==="expenses" ? (x.category||"Expense") : (x.name||"");
+          const qty=Number(x.quantity||0);
+          const weight=Number(x.weightKg||0);
+          const amount=Number(x.amount||0);
+          totalAmount+=amount;
+          totalQty+=qty;
+          totalWeight+=weight;
+
+          html+=`<tr>
+            <td>${esc(x.date)}</td>
+            <td>${esc(name)}</td>
+            <td>${qty||""}</td>
+            <td>${weight||""}</td>
+            <td>${x.ratePerKg?money(x.ratePerKg):""}</td>
+            <td>${amount?money(amount):""}</td>
+            <td>${esc(x.notes||"")}</td>
+          </tr>`;
+        });
+
+        html+=`<tr class="report-total">
+          <td colspan="2">${esc(sub)} Total</td>
+          <td>${totalQty||""}</td>
+          <td>${totalWeight||""}</td>
+          <td></td>
+          <td>${money(totalAmount)}</td>
+          <td></td>
+        </tr>`;
+        html+=`</tbody></table></div></div>`;
       });
-      html+=`<tr class="report-total"><td colspan="3">Total</td><td>${totalQty||""}</td><td>${totalWeight||""}</td><td></td><td>${money(totalAmount)}</td><td></td></tr>`;
-      html+=`</tbody></table></div></div>`;
+
+      html+=`</div>`;
     });
-    $("reportResult").innerHTML=html || "<p class='small'>No data found.</p>";
+
+    if(!r.rows.length) html+="<p class='small'>No data found.</p>";
+    $("reportResult").innerHTML=html;
   }).withFailureHandler(e=>toast(e.message||"Report could not be loaded","error")).getReport(opt);
 }
-
 function managePage(){
   show("managePage");
   $("manageList").innerHTML="<p class='small'>Use date range or month to search. Active data can be edited or moved to Deleted Data. Deleted data can be restored or permanently deleted.</p>";
